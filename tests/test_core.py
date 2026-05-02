@@ -94,6 +94,24 @@ class SensorReaderTests(unittest.TestCase):
         self.assertEqual(by_id["voidpc-gpu-hot-spot"]["source"], "voidpc")
 
 
+class FakeHttpResponse:
+    def __init__(self, body="{}", status=200):
+        self.body = body
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self.body.encode("utf-8")
+
+    def getcode(self):
+        return self.status
+
+
 class CurveEngineTests(unittest.TestCase):
     def test_interpolates_between_curve_points(self):
         engine = CurveEngine(None, None, None)
@@ -181,6 +199,122 @@ class CurveEngineTests(unittest.TestCase):
 
         self.assertEqual(curve.hysteresis, 2.0)
         self.assertEqual(curve.response_time, 1.0)
+
+    def test_store_rejects_sensor_group_used_by_another_switch(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        store.upsert_power_switch(
+            {
+                "name": "switch-a",
+                "url": "http://switch-a.local",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            store.upsert_power_switch(
+                {
+                    "name": "switch-b",
+                    "url": "http://switch-b.local",
+                    "sensor_groups": ["voidpc"],
+                }
+            )
+
+    def test_store_upserts_power_switches_by_name(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        first = store.upsert_power_switch(
+            {
+                "name": "Desk Switch",
+                "url": "http://switch.local",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+        second = store.upsert_power_switch(
+            {
+                "name": "desk switch",
+                "url": "http://switch.local/power",
+                "sensor_groups": [],
+            }
+        )
+
+        switches = store.snapshot_power_switches()
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(len(switches), 1)
+        self.assertEqual(switches[0].url, "http://switch.local/power")
+        self.assertEqual(switches[0].action_url("on"), "http://switch.local/power/on")
+        self.assertEqual(switches[0].sensor_groups, [])
+
+    def test_store_infers_base_switch_url_from_legacy_action_url(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        switch = store.upsert_power_switch(
+            {
+                "name": "legacy",
+                "on_url": "http://switch.local/on",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+
+        self.assertEqual(switch.url, "http://switch.local")
+        self.assertEqual(switch.action_url("state"), "http://switch.local/state")
+
+    def test_power_switch_sends_command_and_reads_actual_state(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        store.upsert_power_switch(
+            {
+                "name": "desk",
+                "url": "http://switch.local",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+        sensors = SimpleNamespace(last_ok_sources={"voidpc"}, read_sensors=lambda: [])
+        engine = CurveEngine(None, store, sensors)
+        calls = []
+
+        def fake_urlopen(request, timeout=0):
+            calls.append(request.full_url)
+            if request.full_url.endswith("/state"):
+                return FakeHttpResponse('{"state":"on"}')
+            return FakeHttpResponse("")
+
+        with patch("fan_control_service.urllib.request.urlopen", fake_urlopen):
+            result = engine.evaluate_power_switches()[0]
+
+        self.assertEqual(calls, ["http://switch.local/on", "http://switch.local/state"])
+        self.assertEqual(result["desired_state"], "on")
+        self.assertEqual(result["state"], "on")
+        self.assertEqual(result["last_command"], "on")
+        self.assertIsNone(result["last_error"])
+
+    def test_power_switch_sends_off_without_working_assigned_groups(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        store.upsert_power_switch(
+            {
+                "name": "desk",
+                "url": "http://switch.local",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+        sensors = SimpleNamespace(last_ok_sources=set(), read_sensors=lambda: [])
+        engine = CurveEngine(None, store, sensors)
+        calls = []
+
+        def fake_urlopen(request, timeout=0):
+            calls.append(request.full_url)
+            if request.full_url.endswith("/state"):
+                return FakeHttpResponse("off")
+            return FakeHttpResponse("")
+
+        with patch("fan_control_service.urllib.request.urlopen", fake_urlopen):
+            result = engine.evaluate_power_switches()[0]
+
+        self.assertEqual(calls, ["http://switch.local/off", "http://switch.local/state"])
+        self.assertEqual(result["desired_state"], "off")
+        self.assertEqual(result["state"], "off")
+        self.assertEqual(result["last_command"], "off")
 
     def test_curve_engine_holds_pwm_inside_hysteresis_and_response_time(self):
         class FakeHardware:

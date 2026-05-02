@@ -74,6 +74,44 @@
       </section>
 
       <section class="grid wide">
+        <div class="panel switches">
+          <div class="panel-heading">
+            <h2>Power Switch Configuration</h2>
+          </div>
+          <form id="switch-form" class="stack">
+            <label>
+              Name
+              <input id="switch-name" type="text" placeholder="desk-switch" autocomplete="off" required>
+            </label>
+            <label>
+              Switch URL
+              <input id="switch-url" type="url" placeholder="http://192.168.1.50" required>
+            </label>
+            <div>
+              <div class="field-label">Sensor Groups</div>
+              <div class="target-add-row">
+                <select id="switch-sensor-add"></select>
+                <button id="add-switch-sensor" type="button" class="secondary">Add Sensor Group</button>
+              </div>
+              <div id="switch-sensors" class="target-list"></div>
+            </div>
+            <div class="form-actions">
+              <button type="submit">Save Switch</button>
+            </div>
+            <div id="switch-form-status" class="form-status" role="status" aria-live="polite"></div>
+          </form>
+        </div>
+
+        <div class="panel switches">
+          <div class="panel-heading">
+            <h2>Power Switches</h2>
+            <span id="switch-count" class="counter">0</span>
+          </div>
+          <div id="switches" class="list"></div>
+        </div>
+      </section>
+
+      <section class="grid wide">
         <div class="panel curve-editor">
           <div class="panel-heading">
             <h2>Curve Configuration</h2>
@@ -140,6 +178,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260503-4"></script>
+    <script src="/static/app.js?v=20260503-7"></script>
   </body>
 </html>

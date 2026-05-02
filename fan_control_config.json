@@ -9,6 +9,24 @@
     "DE6424128F4E2434": "c2",
     "DE6424128F242334": "c11"
   },
+  "power_switches": [
+    {
+      "id": "tss",
+      "name": "tss",
+      "url": "https://arduino.voidlab.homes/radiator-psu",
+      "on_url": "https://arduino.voidlab.homes/radiator-psu/on",
+      "off_url": "https://arduino.voidlab.homes/radiator-psu/off",
+      "state_url": "https://arduino.voidlab.homes/radiator-psu/state",
+      "sensor_groups": [
+        "voidpc"
+      ],
+      "state": "on",
+      "desired_state": "on",
+      "last_command": "on",
+      "last_command_at": 1777760167.4725573,
+      "last_error": null
+    }
+  ],
   "curves": [
     {
       "id": "pump-curve",
@@ -127,8 +145,8 @@
       "hysteresis": 2.0,
       "response_time": 1.0,
       "enabled": true,
-      "last_value": null,
-      "last_pwm": null,
+      "last_value": 54.0,
+      "last_pwm": 66.5,
       "last_error": null
     }
   ]

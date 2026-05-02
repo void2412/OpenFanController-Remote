@@ -224,6 +224,10 @@ output {
   gap: 8px;
 }
 
+.compact-item {
+  padding: 8px 10px;
+}
+
 .item-main {
   display: flex;
   align-items: start;

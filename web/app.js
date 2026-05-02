@@ -3,8 +3,11 @@ const state = {
   sources: [],
   sensors: [],
   sensorErrors: {},
+  powerSwitches: [],
   curves: [],
   manualFanSelections: {},
+  editingSwitchId: null,
+  switchSensorGroups: [],
   curveSensorGroups: [],
   collapsedCurveSensors: {},
   curveSensorSelections: {},
@@ -54,6 +57,7 @@ async function loadStatus() {
   state.sources = payload.sources || [];
   state.sensors = payload.sensors || [];
   state.sensorErrors = payload.sensor_errors || {};
+  state.powerSwitches = payload.power_switches || [];
   state.curves = payload.curves || [];
   render();
 }
@@ -61,8 +65,9 @@ async function loadStatus() {
 function render() {
   qs("#controller-count").textContent = state.controllers.length;
   qs("#sensor-count").textContent = state.sensors.length;
+  qs("#switch-count").textContent = state.powerSwitches.length;
   qs("#curve-count").textContent = state.curves.length;
-  qs("#summary").textContent = `${state.controllers.length} controller(s), ${state.sensors.length} sensor(s), ${state.curves.length} curve(s)`;
+  qs("#summary").textContent = `${state.controllers.length} controller(s), ${state.sensors.length} sensor(s), ${state.powerSwitches.length} switch(es), ${state.curves.length} curve(s)`;
   updateCurveFormMode();
   if (!hasFocusedTextInput("#controllers")) {
     renderControllers();
@@ -73,6 +78,10 @@ function render() {
   }
   renderSources();
   renderSensors();
+  if (!hasFocusedControl("#switch-form")) {
+    renderSwitchSensorOptions();
+  }
+  renderPowerSwitches();
   if (!hasFocusedControl("#curve-form")) {
     renderCurveSensorOptions();
     renderCurveTargets();
@@ -143,6 +152,10 @@ function groupedSensors() {
     groups.set(source, current);
   });
   return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+}
+
+function configuredSensorGroups() {
+  return state.sources.map((source) => source.name).sort((left, right) => left.localeCompare(right));
 }
 
 function sensorsForSource(source) {
@@ -354,6 +367,128 @@ function setCurveFormStatus(message, kind = "warn") {
   const status = qs("#curve-form-status");
   status.textContent = message;
   status.className = `form-status ${kind}`;
+}
+
+function setSwitchFormStatus(message, kind = "warn") {
+  const status = qs("#switch-form-status");
+  status.textContent = message;
+  status.className = `form-status ${kind}`;
+}
+
+function switchGroupsAssignedToOtherSwitches() {
+  const assigned = new Set();
+  state.powerSwitches.forEach((powerSwitch) => {
+    if (powerSwitch.id === state.editingSwitchId) return;
+    (powerSwitch.sensor_groups || []).forEach((group) => assigned.add(group));
+  });
+  return assigned;
+}
+
+function renderSwitchSensorOptions() {
+  const select = qs("#switch-sensor-add");
+  const current = select.value;
+  const assigned = switchGroupsAssignedToOtherSwitches();
+  const available = configuredSensorGroups().filter(
+    (group) => !assigned.has(group) && !state.switchSensorGroups.includes(group)
+  );
+  select.replaceChildren();
+  if (!available.length) {
+    select.append(el("option", { value: "", text: configuredSensorGroups().length ? "No available sensor groups" : "No sensor groups configured" }));
+    select.disabled = true;
+    qs("#add-switch-sensor").disabled = true;
+  } else {
+    select.disabled = false;
+    qs("#add-switch-sensor").disabled = false;
+    available.forEach((group) => {
+      select.append(el("option", { value: group, text: group }));
+    });
+    if (available.includes(current)) select.value = current;
+  }
+  renderSwitchSelectedGroups();
+}
+
+function renderSwitchSelectedGroups() {
+  const root = qs("#switch-sensors");
+  root.replaceChildren();
+  if (!state.switchSensorGroups.length) {
+    root.append(el("div", { className: "empty compact", text: "No sensor groups assigned. This switch will be kept off." }));
+    return;
+  }
+
+  state.switchSensorGroups.forEach((group) => {
+    const remove = el("button", { type: "button", className: "danger compact-button", text: "Remove" });
+    remove.addEventListener("click", () => {
+      state.switchSensorGroups = state.switchSensorGroups.filter((item) => item !== group);
+      renderSwitchSensorOptions();
+    });
+    root.append(
+      el("div", { className: "item compact-item" }, [
+        el("div", { className: "item-main" }, [
+          el("div", { className: "item-title", text: group }),
+          remove,
+        ]),
+      ])
+    );
+  });
+}
+
+function renderPowerSwitches() {
+  const root = qs("#switches");
+  root.replaceChildren();
+  if (!state.powerSwitches.length) {
+    root.append(el("div", { className: "empty", text: "No power switches configured." }));
+    return;
+  }
+
+  state.powerSwitches.forEach((powerSwitch) => {
+    const edit = el("button", { className: "secondary", type: "button", text: "Edit" });
+    edit.addEventListener("click", () => loadSwitchIntoEditor(powerSwitch));
+    const remove = el("button", { className: "danger", type: "button", text: "Remove" });
+    remove.addEventListener("click", async () => {
+      await api(`/api/power-switches/${encodeURIComponent(powerSwitch.id)}`, { method: "DELETE" });
+      if (state.editingSwitchId === powerSwitch.id) clearSwitchEditor();
+      await loadStatus();
+    });
+
+    root.append(
+      el("div", { className: "item" }, [
+        el("div", { className: "item-main" }, [
+          el("div", {}, [
+            el("div", { className: "item-title", text: powerSwitch.name }),
+            el("div", { className: "item-meta", text: powerSwitch.url || switchBaseUrl(powerSwitch) }),
+            el("div", { className: powerSwitch.state === "on" ? "item-meta ok" : powerSwitch.state === "off" ? "item-meta warn" : "item-meta", text: `State: ${powerSwitch.state || "unknown"}` }),
+            el("div", { className: "item-meta", text: `Desired: ${powerSwitch.desired_state || "off"}` }),
+            el("div", { className: "item-meta", text: `Last command: ${powerSwitch.last_command || "none"}` }),
+            el("div", { className: "item-meta", text: `Sensor Groups: ${(powerSwitch.sensor_groups || []).join(", ") || "none"}` }),
+            powerSwitch.last_error ? el("div", { className: "item-meta warn", text: powerSwitch.last_error }) : document.createDocumentFragment(),
+          ]),
+          el("div", { className: "curve-actions" }, [edit, remove]),
+        ]),
+      ])
+    );
+  });
+}
+
+function loadSwitchIntoEditor(powerSwitch) {
+  state.editingSwitchId = powerSwitch.id;
+  qs("#switch-name").value = powerSwitch.name;
+  qs("#switch-url").value = powerSwitch.url || switchBaseUrl(powerSwitch);
+  state.switchSensorGroups = [...(powerSwitch.sensor_groups || [])];
+  renderSwitchSensorOptions();
+  setSwitchFormStatus(`Loaded ${powerSwitch.name}. Saving with the same name will update it.`, "ok");
+}
+
+function switchBaseUrl(powerSwitch) {
+  const url = powerSwitch.on_url || powerSwitch.off_url || powerSwitch.state_url || "";
+  return url.replace(/\/(on|off|state)\/?$/i, "");
+}
+
+function clearSwitchEditor() {
+  state.editingSwitchId = null;
+  state.switchSensorGroups = [];
+  qs("#switch-form").reset();
+  renderSwitchSensorOptions();
+  setSwitchFormStatus("");
 }
 
 function renderCurveSensorOptions() {
@@ -953,6 +1088,12 @@ qs("#add-curve-sensor").addEventListener("click", () => {
   state.curveSensorSelections[source] = [];
   renderCurveSensorOptions();
 });
+qs("#add-switch-sensor").addEventListener("click", () => {
+  const source = qs("#switch-sensor-add").value;
+  if (!source || state.switchSensorGroups.includes(source)) return;
+  state.switchSensorGroups.push(source);
+  renderSwitchSensorOptions();
+});
 qs("#add-curve-controller").addEventListener("click", () => {
   const identifier = qs("#curve-controller-add").value;
   if (!identifier || state.curveTargetControllers.includes(identifier)) return;
@@ -973,6 +1114,33 @@ qs("#source-form").addEventListener("submit", async (event) => {
   });
   qs("#source-form").reset();
   await loadStatus();
+});
+
+qs("#switch-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setSwitchFormStatus("");
+  try {
+    const switchName = qs("#switch-name").value.trim();
+    if (!switchName) {
+      setSwitchFormStatus("Switch name is required.");
+      return;
+    }
+    const existing = state.powerSwitches.find((powerSwitch) => powerSwitch.name.toLowerCase() === switchName.toLowerCase());
+    const saved = await api("/api/power-switches", {
+      method: "POST",
+      body: JSON.stringify({
+        id: existing?.id || switchName,
+        name: switchName,
+        url: qs("#switch-url").value,
+        sensor_groups: state.switchSensorGroups,
+      }),
+    });
+    state.editingSwitchId = saved.id;
+    setSwitchFormStatus(existing ? `Updated ${saved.name}.` : `Created ${saved.name}.`, "ok");
+    await loadStatus();
+  } catch (error) {
+    setSwitchFormStatus(error.message || "Unable to save switch.");
+  }
 });
 
 qs("#manual-form").addEventListener("submit", async (event) => {

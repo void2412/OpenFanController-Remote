@@ -34,6 +34,13 @@ class SensorSourceRequest(BaseModel):
     url: str
 
 
+class PowerSwitchRequest(BaseModel):
+    id: str | None = None
+    name: str
+    url: str
+    sensor_groups: List[str] = []
+
+
 class CurveTargetRequest(BaseModel):
     controller_id: str
     fan: str = "all"
@@ -144,6 +151,7 @@ def get_status() -> Dict[str, Any]:
         "sources": [source.to_dict() for source in state.store.snapshot_sources()],
         "sensors": state.curves.last_sensors,
         "sensor_errors": state.sensors.last_errors,
+        "power_switches": [switch.to_dict() for switch in state.store.snapshot_power_switches()],
         "curves": [curve.to_dict() for curve in state.store.snapshot_curves()],
     }
 
@@ -195,7 +203,26 @@ def remove_source(source_name: str) -> Dict[str, bool]:
 @app.get("/api/sensors")
 def read_sensors() -> Dict[str, object]:
     state.curves.last_sensors = state.sensors.read_sensors()
+    state.curves.evaluate_power_switches()
     return {"sensors": state.curves.last_sensors, "errors": state.sensors.last_errors}
+
+
+@app.get("/api/power-switches")
+def list_power_switches() -> List[Dict[str, object]]:
+    return [switch.to_dict() for switch in state.store.snapshot_power_switches()]
+
+
+@app.post("/api/power-switches", status_code=201)
+def save_power_switch(request: PowerSwitchRequest) -> Dict[str, object]:
+    switch = _or_http_error(lambda: state.store.upsert_power_switch(request.model_dump()))
+    state.curves.evaluate_power_switches()
+    return switch.to_dict()
+
+
+@app.delete("/api/power-switches/{switch_id}")
+def remove_power_switch(switch_id: str) -> Dict[str, bool]:
+    state.store.remove_power_switch(switch_id)
+    return {"ok": True}
 
 
 @app.get("/api/curves")

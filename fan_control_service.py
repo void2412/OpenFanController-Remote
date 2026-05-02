@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from base_logger import logger
 from hardware_interface import FanControllerHardwareInterface
@@ -31,6 +31,38 @@ class SensorSource:
 
     def to_dict(self) -> Dict[str, str]:
         return {"name": self.name, "url": self.url}
+
+
+@dataclass
+class PowerSwitchConfig:
+    id: str
+    name: str
+    url: str
+    sensor_groups: List[str] = field(default_factory=list)
+    state: str = "unknown"
+    desired_state: str = "off"
+    last_command: str = "none"
+    last_command_at: Optional[float] = None
+    last_error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "url": self.url,
+            "on_url": self.action_url("on"),
+            "off_url": self.action_url("off"),
+            "state_url": self.action_url("state"),
+            "sensor_groups": self.sensor_groups,
+            "state": self.state,
+            "desired_state": self.desired_state,
+            "last_command": self.last_command,
+            "last_command_at": self.last_command_at,
+            "last_error": self.last_error,
+        }
+
+    def action_url(self, action: str) -> str:
+        return f"{self.url.rstrip('/')}/{action}"
 
 
 @dataclass
@@ -79,6 +111,7 @@ class FanControlConfigStore:
         self.path = path
         self._lock = threading.RLock()
         self.sources: Dict[str, SensorSource] = {}
+        self.power_switches: Dict[str, PowerSwitchConfig] = {}
         self.curves: Dict[str, CurveConfig] = {}
         self.controller_names: Dict[str, str] = {}
         self.load()
@@ -100,6 +133,25 @@ class FanControlConfigStore:
                 for identifier, name in data.get("controller_names", {}).items()
                 if str(name).strip()
             }
+            self.power_switches = {}
+            for item in data.get("power_switches", []):
+                switch_id = self._clean_name(str(item.get("id") or item.get("name") or "switch"))
+                switch_url = str(item.get("url") or "")
+                if not switch_url:
+                    switch_url = self._base_switch_url_from_legacy_urls(
+                        str(item.get("on_url") or item.get("off_url") or item.get("state_url") or "")
+                    )
+                self.power_switches[switch_id] = PowerSwitchConfig(
+                    id=switch_id,
+                    name=str(item.get("name", switch_id)),
+                    url=switch_url,
+                    sensor_groups=[str(group) for group in item.get("sensor_groups", [])],
+                    state=str(item.get("state", item.get("last_state", "unknown"))),
+                    desired_state=str(item.get("desired_state", "off")),
+                    last_command=str(item.get("last_command", "none")),
+                    last_command_at=item.get("last_command_at"),
+                    last_error=item.get("last_error"),
+                )
             self.curves = {}
             for item in data.get("curves", []):
                 targets = [
@@ -128,6 +180,7 @@ class FanControlConfigStore:
             data = {
                 "sources": [source.to_dict() for source in self.sources.values()],
                 "controller_names": self.controller_names,
+                "power_switches": [switch.to_dict() for switch in self.power_switches.values()],
                 "curves": [curve.to_dict() for curve in self.curves.values()],
             }
             self.path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -148,7 +201,97 @@ class FanControlConfigStore:
     def remove_source(self, name: str) -> None:
         with self._lock:
             self.sources.pop(name, None)
+            for switch in self.power_switches.values():
+                switch.sensor_groups = [group for group in switch.sensor_groups if group != name]
             self.save()
+
+    def upsert_power_switch(self, data: Dict[str, object]) -> PowerSwitchConfig:
+        switch_name = str(data.get("name") or data.get("id") or f"switch-{int(time.time())}")
+        switch_id = self._clean_name(str(data.get("id") or switch_name))
+        with self._lock:
+            for existing_id, existing_switch in self.power_switches.items():
+                if existing_switch.name.lower() == switch_name.lower():
+                    switch_id = existing_id
+                    break
+
+        switch_url = str(data.get("url") or "").strip()
+        if not switch_url:
+            switch_url = self._base_switch_url_from_legacy_urls(
+                str(data.get("on_url") or data.get("off_url") or data.get("state_url") or "")
+            )
+        if not switch_name.strip():
+            raise ValueError("Switch name is required")
+        if not switch_url.startswith(("http://", "https://")):
+            raise ValueError("Switch URL must start with http:// or https://")
+
+        sensor_groups = [str(group) for group in data.get("sensor_groups", [])]
+        self._validate_switch_sensor_groups_available(switch_id, sensor_groups)
+        switch = PowerSwitchConfig(
+            id=switch_id,
+            name=switch_name,
+            url=switch_url.rstrip("/"),
+            sensor_groups=sensor_groups,
+        )
+        with self._lock:
+            existing = self.power_switches.get(switch_id)
+            if existing:
+                switch.state = existing.state
+                switch.desired_state = existing.desired_state
+                switch.last_command = existing.last_command
+                switch.last_command_at = existing.last_command_at
+                switch.last_error = existing.last_error
+            self.power_switches[switch_id] = switch
+            self.save()
+        return switch
+
+    def remove_power_switch(self, switch_id: str) -> None:
+        with self._lock:
+            self.power_switches.pop(switch_id, None)
+            self.save()
+
+    def set_power_switch_status(
+        self,
+        switch_id: str,
+        state: str,
+        desired_state: str,
+        last_command: Optional[str] = None,
+        last_command_at: Optional[float] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        with self._lock:
+            switch = self.power_switches.get(switch_id)
+            if not switch:
+                return
+            switch.state = state
+            switch.desired_state = desired_state
+            if last_command is not None:
+                switch.last_command = last_command
+            if last_command_at is not None:
+                switch.last_command_at = last_command_at
+            switch.last_error = error
+            self.save()
+
+    def snapshot_power_switches(self) -> List[PowerSwitchConfig]:
+        with self._lock:
+            return list(self.power_switches.values())
+
+    def _validate_switch_sensor_groups_available(self, switch_id: str, sensor_groups: List[str]) -> None:
+        seen = set()
+        for group in sensor_groups:
+            if group in seen:
+                raise ValueError(f"Sensor group {group} is duplicated on this switch")
+            seen.add(group)
+            if group not in self.sources:
+                raise ValueError(f"Sensor group {group} does not exist")
+
+        for existing_id, existing_switch in self.power_switches.items():
+            if existing_id == switch_id:
+                continue
+            for group in sensor_groups:
+                if group in existing_switch.sensor_groups:
+                    raise ValueError(
+                        f"Sensor group {group} is already assigned to switch {existing_switch.name}"
+                    )
 
     def upsert_curve(self, data: Dict[str, object]) -> CurveConfig:
         curve_name = str(data.get("name") or data.get("id") or f"curve-{int(time.time())}")
@@ -249,6 +392,13 @@ class FanControlConfigStore:
             cleaned.append({"temp": temp, "pwm": pwm})
         return sorted(cleaned, key=lambda point: point["temp"])
 
+    def _base_switch_url_from_legacy_urls(self, url: str) -> str:
+        cleaned = url.strip().rstrip("/")
+        for suffix in ("/on", "/off", "/state"):
+            if cleaned.lower().endswith(suffix):
+                return cleaned[: -len(suffix)]
+        return cleaned
+
     def _clean_name(self, value: str) -> str:
         return "".join(ch.lower() if ch.isalnum() else "-" for ch in value.strip()).strip("-")
 
@@ -257,20 +407,24 @@ class RemoteSensorReader:
     def __init__(self, store: FanControlConfigStore):
         self.store = store
         self.last_errors: Dict[str, str] = {}
+        self.last_ok_sources: Set[str] = set()
 
     def read_sensors(self) -> List[Dict[str, object]]:
         sensors: List[Dict[str, object]] = []
         errors: Dict[str, str] = {}
+        ok_sources: Set[str] = set()
 
         for source in self.store.snapshot_sources():
             try:
                 readings = self._fetch_temperature_readings(source.url)
+                ok_sources.add(source.name)
                 sensors.extend(self._extract_temperature_sensors(source.name, readings))
             except Exception as exc:
                 errors[source.name] = str(exc)
                 logger.warning("Unable to read sensor source %s: %s", source.name, exc)
 
         self.last_errors = errors
+        self.last_ok_sources = ok_sources
         return sensors
 
     def _fetch_temperature_readings(self, url: str) -> List[Dict[str, object]]:
@@ -401,6 +555,7 @@ class CurveEngine:
 
     def evaluate_once(self) -> List[Dict[str, object]]:
         self.last_sensors = self.sensors.read_sensors()
+        self.evaluate_power_switches()
         sensor_by_id = {sensor["id"]: sensor for sensor in self.last_sensors}
         results = []
 
@@ -442,6 +597,100 @@ class CurveEngine:
             results.append(curve.to_dict())
 
         return results
+
+    def evaluate_power_switches(self) -> List[Dict[str, object]]:
+        ok_sources = set(getattr(self.sensors, "last_ok_sources", set()))
+        results = []
+
+        for switch in self.store.snapshot_power_switches():
+            desired_state = self._desired_switch_state(switch, ok_sources)
+            state = switch.state
+            last_command = switch.last_command
+            last_command_at = switch.last_command_at
+            errors = []
+
+            if desired_state != switch.last_command or (
+                switch.state in {"on", "off"} and switch.state != desired_state
+            ):
+                try:
+                    self._request_switch_url(switch.action_url(desired_state))
+                    last_command = desired_state
+                    last_command_at = time.time()
+                except Exception as exc:
+                    errors.append(f"{desired_state.upper()} command failed: {exc}")
+
+            try:
+                state = self._read_switch_state(switch.action_url("state"))
+            except Exception as exc:
+                errors.append(f"State read failed: {exc}")
+
+            self.store.set_power_switch_status(
+                switch.id,
+                state=state,
+                desired_state=desired_state,
+                last_command=last_command,
+                last_command_at=last_command_at,
+                error="; ".join(errors) if errors else None,
+            )
+            refreshed = self.store.power_switches.get(switch.id)
+            results.append(refreshed.to_dict() if refreshed else switch.to_dict())
+
+        return results
+
+    def _desired_switch_state(self, switch: PowerSwitchConfig, ok_sources: Set[str]) -> str:
+        if not switch.sensor_groups:
+            return "off"
+        return "on" if any(group in ok_sources for group in switch.sensor_groups) else "off"
+
+    def _request_switch_url(self, url: str) -> None:
+        request = urllib.request.Request(url, headers={"Accept": "application/json,text/plain,*/*"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status = getattr(response, "status", None) or response.getcode()
+            if status < 200 or status >= 300:
+                raise RuntimeError(f"HTTP {status}")
+
+    def _read_switch_state(self, url: str) -> str:
+        request = urllib.request.Request(url, headers={"Accept": "application/json,text/plain,*/*"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status = getattr(response, "status", None) or response.getcode()
+            if status < 200 or status >= 300:
+                raise RuntimeError(f"HTTP {status}")
+            text = response.read().decode("utf-8", errors="replace").strip()
+        return self._parse_switch_state(text)
+
+    def _parse_switch_state(self, text: str) -> str:
+        if not text:
+            return "unknown"
+        try:
+            payload = json.loads(text)
+            parsed = self._state_from_json(payload)
+            if parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        normalized = text.strip().lower()
+        if normalized in {"on", "1", "true", "enabled", "high"}:
+            return "on"
+        if normalized in {"off", "0", "false", "disabled", "low"}:
+            return "off"
+        return normalized[:80]
+
+    def _state_from_json(self, payload: Any) -> Optional[str]:
+        if isinstance(payload, bool):
+            return "on" if payload else "off"
+        if isinstance(payload, (int, float)):
+            if payload == 1:
+                return "on"
+            if payload == 0:
+                return "off"
+        if isinstance(payload, str):
+            return self._parse_switch_state(payload)
+        if isinstance(payload, dict):
+            for key in ("state", "status", "power", "relay", "on", "value"):
+                if key in payload:
+                    return self._state_from_json(payload[key])
+        return None
 
     def _resolve_pwm(self, curve: CurveConfig, current_temp: Optional[float]) -> tuple[float, bool]:
         if curve.curve_type == "flat":
