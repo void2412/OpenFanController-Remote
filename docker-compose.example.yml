@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: openfancontroller-remote:debian13
+    image: ghcr.io/void2412/openfancontroller-remote:latest
     env_file:
       - .env
     ports:
