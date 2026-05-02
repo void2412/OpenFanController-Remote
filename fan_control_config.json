@@ -1,0 +1,135 @@
+{
+  "sources": [
+    {
+      "name": "voidpc",
+      "url": "https://voidpcsensor.voidlab.homes/api/sensors"
+    }
+  ],
+  "controller_names": {
+    "DE6424128F4E2434": "c2",
+    "DE6424128F242334": "c11"
+  },
+  "curves": [
+    {
+      "id": "pump-curve",
+      "name": "pump-curve",
+      "sensor_ids": [],
+      "targets": [
+        {
+          "controller_id": "DE6424128F242334",
+          "fan": "0"
+        }
+      ],
+      "curve_type": "flat",
+      "points": [
+        {
+          "temp": 0.0,
+          "pwm": 100.0
+        }
+      ],
+      "hysteresis": 2.0,
+      "response_time": 1.0,
+      "enabled": true,
+      "last_value": null,
+      "last_pwm": 100.0,
+      "last_error": null
+    },
+    {
+      "id": "fan-curve",
+      "name": "fan-curve",
+      "sensor_ids": [
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core0-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core1-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core10-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core11-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core12-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core13-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core14-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core15-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core2-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core3-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core4-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core5-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core6-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core7-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core8-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-core9-ccd2",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-tctl-tdie",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-ccd1-tdie",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-ccd2-tdie",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-die-average",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-iod-hotspot",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-vdd-misc-vrm-svi3-tfn",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-vddcr-soc-vrm-svi3-tfn",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-cpu-vddcr-vdd-vrm-svi3-tfn",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-l3-cache-ccd1",
+        "voidpc-cpu-0-amd-ryzen-9-9950x3d-enhanced-l3-cache-ccd2",
+        "voidpc-dgpu-0-amd-radeon-rx-9070-xt-asrock-radeon-rx-9070-xt-taichi-gpu-hot-spot-temperature",
+        "voidpc-dgpu-0-amd-radeon-rx-9070-xt-asrock-radeon-rx-9070-xt-taichi-gpu-hot-spot-temperature-max",
+        "voidpc-dgpu-0-amd-radeon-rx-9070-xt-asrock-radeon-rx-9070-xt-taichi-gpu-memory-junction-temperature",
+        "voidpc-dgpu-0-amd-radeon-rx-9070-xt-asrock-radeon-rx-9070-xt-taichi-gpu-temperature",
+        "voidpc-dgpu-0-amd-radeon-rx-9070-xt-asrock-radeon-rx-9070-xt-taichi-gpu-vr-soc-temperature",
+        "voidpc-dgpu-0-amd-radeon-rx-9070-xt-asrock-radeon-rx-9070-xt-taichi-gpu-vr-vddc-temperature"
+      ],
+      "targets": [
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "1"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "2"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "3"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "4"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "5"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "6"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "7"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "8"
+        },
+        {
+          "controller_id": "DE6424128F4E2434",
+          "fan": "9"
+        }
+      ],
+      "curve_type": "linear",
+      "points": [
+        {
+          "temp": 50.0,
+          "pwm": 50.0
+        },
+        {
+          "temp": 60.0,
+          "pwm": 80.0
+        },
+        {
+          "temp": 70.0,
+          "pwm": 100.0
+        }
+      ],
+      "hysteresis": 2.0,
+      "response_time": 1.0,
+      "enabled": true,
+      "last_value": null,
+      "last_pwm": null,
+      "last_error": null
+    }
+  ]
+}

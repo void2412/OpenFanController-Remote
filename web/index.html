@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenFanController Remote</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>OpenFanController Remote</h1>
+          <p id="summary">Scanning for controllers...</p>
+        </div>
+        <button class="refresh-button" id="refresh" title="Refresh now" aria-label="Refresh now">Refresh</button>
+      </header>
+
+      <section class="grid">
+        <div class="panel controllers">
+          <div class="panel-heading">
+            <h2>Controllers</h2>
+            <span id="controller-count" class="counter">0</span>
+          </div>
+          <div id="controllers" class="list"></div>
+        </div>
+
+        <div class="panel manual">
+          <div class="panel-heading">
+            <h2>Manual PWM</h2>
+          </div>
+          <form id="manual-form" class="stack">
+            <label>
+              Controller
+              <select id="manual-controller"></select>
+            </label>
+            <div>
+              <div class="field-label">Fans</div>
+              <div id="manual-fans" class="check-grid"></div>
+            </div>
+            <label>
+              PWM
+              <input id="manual-pwm" type="range" min="0" max="100" value="45">
+            </label>
+            <div class="row">
+              <output id="manual-pwm-value">45%</output>
+              <button type="submit">Apply</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="grid wide">
+        <div class="panel sources">
+          <div class="panel-heading">
+            <h2>Sensor URLs</h2>
+          </div>
+          <form id="source-form" class="source-form">
+            <input id="source-name" type="text" placeholder="voidpc" autocomplete="off" required>
+            <input id="source-url" type="url" placeholder="https://voidpcsensor.voidlab.homes/api/sensors" required>
+            <button type="submit">Add</button>
+          </form>
+          <div id="sources" class="source-list"></div>
+        </div>
+
+        <div class="panel sensors">
+          <div class="panel-heading">
+            <h2>Sensors</h2>
+            <span id="sensor-count" class="counter">0</span>
+          </div>
+          <div id="sensors" class="sensor-grid"></div>
+          <div id="sensor-errors" class="errors"></div>
+        </div>
+      </section>
+
+      <section class="grid wide">
+        <div class="panel curve-editor">
+          <div class="panel-heading">
+            <h2>Curve Configuration</h2>
+          </div>
+          <form id="curve-form" class="stack">
+            <label>
+              Name
+              <input id="curve-name" type="text" value="main-curve" required>
+            </label>
+            <label>
+              Type
+              <select id="curve-type">
+                <option value="linear">Linear</option>
+                <option value="step">Step</option>
+                <option value="flat">Flat</option>
+                <option value="trigger">Trigger</option>
+              </select>
+            </label>
+            <div id="curve-tuning-field" class="row two">
+              <label>
+                Hysteresis (°C)
+                <input id="curve-hysteresis" type="number" min="0" step="0.1" value="2">
+              </label>
+              <label>
+                Response (s)
+                <input id="curve-response-time" type="number" min="0" step="0.1" value="1">
+              </label>
+            </div>
+            <div id="curve-sensor-field">
+              <div class="field-label">Sensors</div>
+              <div class="target-add-row">
+                <select id="curve-sensor-add"></select>
+                <button id="add-curve-sensor" type="button" class="secondary">Add Sensor Group</button>
+              </div>
+              <div id="curve-sensors" class="target-list"></div>
+            </div>
+            <div>
+              <div class="field-label">Fan Targets</div>
+              <div class="target-add-row">
+                <select id="curve-controller-add"></select>
+                <button id="add-curve-controller" type="button" class="secondary">Add Controller</button>
+              </div>
+              <div id="curve-targets" class="target-list"></div>
+            </div>
+            <div>
+              <div class="field-label">Curve Points</div>
+              <div id="curve-points-editor" class="points-editor"></div>
+              <button id="add-curve-point" type="button" class="secondary">Add Point</button>
+            </div>
+            <div class="form-actions">
+              <button type="submit">Save Curve</button>
+            </div>
+            <div id="curve-form-status" class="form-status" role="status" aria-live="polite"></div>
+          </form>
+        </div>
+
+        <div class="panel curves">
+          <div class="panel-heading">
+            <h2>Curves</h2>
+            <span id="curve-count" class="counter">0</span>
+          </div>
+          <div id="curves" class="list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js?v=20260503-4"></script>
+  </body>
+</html>
