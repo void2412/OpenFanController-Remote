@@ -16,3 +16,4 @@ pyvenv.cfg
 *.egg-info/
 dist/
 build/
+fan_control_config.json

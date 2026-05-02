@@ -1,15 +1,18 @@
 services:
   openfancontroller-remote:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ghcr.io/void2412/openfancontroller-remote:latest
-    env_file:
-      - .env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8088"
+      CONTROLLER_POLL_INTERVAL: "2.0"
+      CURVE_POLL_INTERVAL: "2.0"
+      POWER_SWITCH_STATE_INTERVAL: "2.0"
+      LOG_LEVEL: "info"
+      CONFIG_PATH: "/app/runtime/fan_control_config.json"
     ports:
-      - "${PORT:-8088}:${PORT:-8088}"
+      - "8088:8088"
     volumes:
-      - ./fan_control_config.json:/app/fan_control_config.json
+      - ./openfancontroller-data:/app/runtime
     restart: unless-stopped
 
     # On Linux, pass the OpenFanController serial device into the container.

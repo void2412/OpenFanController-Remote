@@ -7,3 +7,4 @@ Include/
 Lib/
 Scripts/
 *.log
+fan_control_config.json

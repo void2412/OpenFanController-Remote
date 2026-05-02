@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -13,6 +14,13 @@ from hardware_interface import FanControllerHardwareInterface
 
 
 CONFIG_PATH = Path(__file__).with_name("fan_control_config.json")
+_DEFAULT_CONFIG_PATH = object()
+DEFAULT_CONFIG_DATA = {
+    "sources": [],
+    "controller_names": {},
+    "power_switches": [],
+    "curves": [],
+}
 DEFAULT_CURVE_POINTS = [
     {"temp": 30, "pwm": 25},
     {"temp": 50, "pwm": 45},
@@ -108,9 +116,18 @@ class CurveConfig:
         }
 
 
+def default_config_path() -> Path:
+    return Path(os.getenv("CONFIG_PATH") or os.getenv("OFC_CONFIG_PATH") or CONFIG_PATH)
+
+
 class FanControlConfigStore:
-    def __init__(self, path: Optional[Path] = CONFIG_PATH):
-        self.path = path
+    def __init__(self, path: object = _DEFAULT_CONFIG_PATH):
+        if path is _DEFAULT_CONFIG_PATH:
+            self.path: Optional[Path] = default_config_path()
+        elif path is None:
+            self.path = None
+        else:
+            self.path = Path(path)
         self._lock = threading.RLock()
         self.sources: Dict[str, SensorSource] = {}
         self.power_switches: Dict[str, PowerSwitchConfig] = {}
@@ -122,6 +139,7 @@ class FanControlConfigStore:
         if self.path is None:
             return
         if not self.path.exists():
+            self.save()
             return
 
         with self._lock:
@@ -180,7 +198,8 @@ class FanControlConfigStore:
         if self.path is None:
             return
         with self._lock:
-            data = {
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            data = DEFAULT_CONFIG_DATA | {
                 "sources": [source.to_dict() for source in self.sources.values()],
                 "controller_names": self.controller_names,
                 "power_switches": [switch.to_dict() for switch in self.power_switches.values()],

@@ -1,5 +1,8 @@
+import json
 import time
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -93,6 +96,26 @@ class SensorReaderTests(unittest.TestCase):
         self.assertEqual(by_id["voidpc-cpu-package"]["value"], 62)
         self.assertEqual(by_id["voidpc-gpu-hot-spot"]["value"], 71)
         self.assertEqual(by_id["voidpc-gpu-hot-spot"]["source"], "voidpc")
+
+
+class ConfigStoreTests(unittest.TestCase):
+    def test_store_creates_missing_config_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "runtime" / "fan_control_config.json"
+
+            store = FanControlConfigStore(path=config_path)
+
+            self.assertEqual(store.snapshot_sources(), [])
+            self.assertTrue(config_path.exists())
+            self.assertEqual(
+                json.loads(config_path.read_text(encoding="utf-8")),
+                {
+                    "sources": [],
+                    "controller_names": {},
+                    "power_switches": [],
+                    "curves": [],
+                },
+            )
 
 
 class FakeHttpResponse:
