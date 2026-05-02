@@ -1,0 +1,18 @@
+services:
+  openfancontroller-remote:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openfancontroller-remote:debian13
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8088}:${PORT:-8088}"
+    volumes:
+      - ./fan_control_config.json:/app/fan_control_config.json
+    restart: unless-stopped
+
+    # On Linux, pass the OpenFanController serial device into the container.
+    # Replace /dev/ttyACM0 with the stable device path for your controller.
+    # devices:
+    #   - "/dev/ttyACM0:/dev/ttyACM0"

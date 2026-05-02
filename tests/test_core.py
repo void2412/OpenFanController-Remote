@@ -1,3 +1,4 @@
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -315,6 +316,98 @@ class CurveEngineTests(unittest.TestCase):
         self.assertEqual(result["desired_state"], "off")
         self.assertEqual(result["state"], "off")
         self.assertEqual(result["last_command"], "off")
+
+    def test_power_switch_state_read_uses_its_own_interval(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        switch = store.upsert_power_switch(
+            {
+                "name": "desk",
+                "url": "http://switch.local",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+        now = time.time()
+        store.set_power_switch_status(
+            switch.id,
+            state="on",
+            desired_state="on",
+            last_command="on",
+            last_command_at=now,
+            last_state_read_at=now,
+        )
+        sensors = SimpleNamespace(last_ok_sources={"voidpc"}, read_sensors=lambda: [])
+        engine = CurveEngine(None, store, sensors, power_switch_state_interval=30)
+        calls = []
+
+        def fake_urlopen(request, timeout=0):
+            calls.append(request.full_url)
+            return FakeHttpResponse("on")
+
+        with patch("fan_control_service.urllib.request.urlopen", fake_urlopen):
+            result = engine.evaluate_power_switches()[0]
+
+        self.assertEqual(calls, [])
+        self.assertEqual(result["state"], "on")
+
+        store.set_power_switch_status(
+            switch.id,
+            state="on",
+            desired_state="on",
+            last_command="on",
+            last_command_at=now,
+            last_state_read_at=now - 31,
+        )
+        with patch("fan_control_service.urllib.request.urlopen", fake_urlopen):
+            result = engine.evaluate_power_switches()[0]
+
+        self.assertEqual(calls, ["http://switch.local/state"])
+        self.assertEqual(result["state"], "on")
+
+    def test_power_switch_does_not_retry_from_stale_state_before_next_state_read(self):
+        store = FanControlConfigStore(path=None)
+        store.add_source("voidpc", "http://sensor.local/api")
+        switch = store.upsert_power_switch(
+            {
+                "name": "desk",
+                "url": "http://switch.local",
+                "sensor_groups": ["voidpc"],
+            }
+        )
+        now = time.time()
+        store.set_power_switch_status(
+            switch.id,
+            state="off",
+            desired_state="on",
+            last_command="on",
+            last_command_at=now,
+            last_state_read_at=now - 10,
+        )
+        sensors = SimpleNamespace(last_ok_sources={"voidpc"}, read_sensors=lambda: [])
+        engine = CurveEngine(None, store, sensors, power_switch_state_interval=30)
+        calls = []
+
+        def fake_urlopen(request, timeout=0):
+            calls.append(request.full_url)
+            return FakeHttpResponse("")
+
+        with patch("fan_control_service.urllib.request.urlopen", fake_urlopen):
+            engine.evaluate_power_switches()[0]
+
+        self.assertEqual(calls, [])
+
+        store.set_power_switch_status(
+            switch.id,
+            state="off",
+            desired_state="on",
+            last_command="on",
+            last_command_at=now,
+            last_state_read_at=now + 1,
+        )
+        with patch("fan_control_service.urllib.request.urlopen", fake_urlopen):
+            engine.evaluate_power_switches(read_state=False)[0]
+
+        self.assertEqual(calls, ["http://switch.local/on"])
 
     def test_curve_engine_holds_pwm_inside_hysteresis_and_response_time(self):
         class FakeHardware:

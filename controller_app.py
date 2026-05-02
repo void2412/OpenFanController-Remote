@@ -26,6 +26,7 @@ class AppSettings:
     port: int = 8088
     controller_poll_interval: float = 2.0
     curve_poll_interval: float = 2.0
+    power_switch_state_interval: float = 2.0
     log_level: str = "info"
 
 
@@ -76,11 +77,22 @@ class PwmRequest(BaseModel):
 
 
 class AppState:
-    def __init__(self, controller_poll_interval: float, curve_poll_interval: float):
+    def __init__(
+        self,
+        controller_poll_interval: float,
+        curve_poll_interval: float,
+        power_switch_state_interval: float,
+    ):
         self.hardware = FanControllerHardwareInterface(poll_interval=controller_poll_interval)
         self.store = FanControlConfigStore()
         self.sensors = RemoteSensorReader(self.store)
-        self.curves = CurveEngine(self.hardware, self.store, self.sensors, interval=curve_poll_interval)
+        self.curves = CurveEngine(
+            self.hardware,
+            self.store,
+            self.sensors,
+            interval=curve_poll_interval,
+            power_switch_state_interval=power_switch_state_interval,
+        )
 
     def start(self) -> None:
         self.hardware.start()
@@ -96,14 +108,20 @@ def load_settings(env_path: Path = ENV_PATH) -> AppSettings:
 
     import os
 
-    fallback_poll_interval = os.getenv("OFC_POLL_INTERVAL", "2.0")
+    def env_value(name: str, default: str) -> str:
+        return os.getenv(name, os.getenv(f"OFC_{name}", default))
+
+    fallback_poll_interval = env_value("POLL_INTERVAL", "2.0")
 
     return AppSettings(
-        host=os.getenv("OFC_HOST", "127.0.0.1"),
-        port=int(os.getenv("OFC_PORT", "8088")),
-        controller_poll_interval=float(os.getenv("OFC_CONTROLLER_POLL_INTERVAL", fallback_poll_interval)),
-        curve_poll_interval=float(os.getenv("OFC_CURVE_POLL_INTERVAL", fallback_poll_interval)),
-        log_level=os.getenv("OFC_LOG_LEVEL", "info"),
+        host=env_value("HOST", "127.0.0.1"),
+        port=int(env_value("PORT", "8088")),
+        controller_poll_interval=float(env_value("CONTROLLER_POLL_INTERVAL", fallback_poll_interval)),
+        curve_poll_interval=float(env_value("CURVE_POLL_INTERVAL", fallback_poll_interval)),
+        power_switch_state_interval=float(
+            env_value("POWER_SWITCH_STATE_INTERVAL", fallback_poll_interval)
+        ),
+        log_level=env_value("LOG_LEVEL", "info"),
     )
 
 
@@ -111,6 +129,7 @@ settings = load_settings()
 state = AppState(
     controller_poll_interval=settings.controller_poll_interval,
     curve_poll_interval=settings.curve_poll_interval,
+    power_switch_state_interval=settings.power_switch_state_interval,
 )
 
 
@@ -215,8 +234,8 @@ def list_power_switches() -> List[Dict[str, object]]:
 @app.post("/api/power-switches", status_code=201)
 def save_power_switch(request: PowerSwitchRequest) -> Dict[str, object]:
     switch = _or_http_error(lambda: state.store.upsert_power_switch(request.model_dump()))
-    state.curves.evaluate_power_switches()
-    return switch.to_dict()
+    state.curves.evaluate_power_switches(force_state_read=True)
+    return state.store.power_switches.get(switch.id, switch).to_dict()
 
 
 @app.delete("/api/power-switches/{switch_id}")

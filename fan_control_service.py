@@ -43,6 +43,7 @@ class PowerSwitchConfig:
     desired_state: str = "off"
     last_command: str = "none"
     last_command_at: Optional[float] = None
+    last_state_read_at: Optional[float] = None
     last_error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
@@ -58,6 +59,7 @@ class PowerSwitchConfig:
             "desired_state": self.desired_state,
             "last_command": self.last_command,
             "last_command_at": self.last_command_at,
+            "last_state_read_at": self.last_state_read_at,
             "last_error": self.last_error,
         }
 
@@ -150,6 +152,7 @@ class FanControlConfigStore:
                     desired_state=str(item.get("desired_state", "off")),
                     last_command=str(item.get("last_command", "none")),
                     last_command_at=item.get("last_command_at"),
+                    last_state_read_at=item.get("last_state_read_at"),
                     last_error=item.get("last_error"),
                 )
             self.curves = {}
@@ -239,6 +242,7 @@ class FanControlConfigStore:
                 switch.desired_state = existing.desired_state
                 switch.last_command = existing.last_command
                 switch.last_command_at = existing.last_command_at
+                switch.last_state_read_at = existing.last_state_read_at
                 switch.last_error = existing.last_error
             self.power_switches[switch_id] = switch
             self.save()
@@ -256,6 +260,7 @@ class FanControlConfigStore:
         desired_state: str,
         last_command: Optional[str] = None,
         last_command_at: Optional[float] = None,
+        last_state_read_at: Optional[float] = None,
         error: Optional[str] = None,
     ) -> None:
         with self._lock:
@@ -268,6 +273,8 @@ class FanControlConfigStore:
                 switch.last_command = last_command
             if last_command_at is not None:
                 switch.last_command_at = last_command_at
+            if last_state_read_at is not None:
+                switch.last_state_read_at = last_state_read_at
             switch.last_error = error
             self.save()
 
@@ -531,11 +538,13 @@ class CurveEngine:
         store: FanControlConfigStore,
         sensors: RemoteSensorReader,
         interval: float = 2.0,
+        power_switch_state_interval: float = 2.0,
     ):
         self.hardware = hardware
         self.store = store
         self.sensors = sensors
         self.interval = interval
+        self.power_switch_state_interval = power_switch_state_interval
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self.last_sensors: List[Dict[str, object]] = []
@@ -551,11 +560,11 @@ class CurveEngine:
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=self.interval + 1)
+            self._thread.join(timeout=max(self.interval, self.power_switch_state_interval) + 1)
 
-    def evaluate_once(self) -> List[Dict[str, object]]:
+    def evaluate_once(self, read_switch_state: bool = True) -> List[Dict[str, object]]:
         self.last_sensors = self.sensors.read_sensors()
-        self.evaluate_power_switches()
+        self.evaluate_power_switches(read_state=read_switch_state)
         sensor_by_id = {sensor["id"]: sensor for sensor in self.last_sensors}
         results = []
 
@@ -598,7 +607,11 @@ class CurveEngine:
 
         return results
 
-    def evaluate_power_switches(self) -> List[Dict[str, object]]:
+    def evaluate_power_switches(
+        self,
+        read_state: bool = True,
+        force_state_read: bool = False,
+    ) -> List[Dict[str, object]]:
         ok_sources = set(getattr(self.sensors, "last_ok_sources", set()))
         results = []
 
@@ -607,10 +620,11 @@ class CurveEngine:
             state = switch.state
             last_command = switch.last_command
             last_command_at = switch.last_command_at
+            last_state_read_at = switch.last_state_read_at
             errors = []
 
-            if desired_state != switch.last_command or (
-                switch.state in {"on", "off"} and switch.state != desired_state
+            if desired_state != switch.last_command or self._has_confirmed_switch_mismatch(
+                switch, desired_state
             ):
                 try:
                     self._request_switch_url(switch.action_url(desired_state))
@@ -619,10 +633,13 @@ class CurveEngine:
                 except Exception as exc:
                     errors.append(f"{desired_state.upper()} command failed: {exc}")
 
-            try:
-                state = self._read_switch_state(switch.action_url("state"))
-            except Exception as exc:
-                errors.append(f"State read failed: {exc}")
+            if read_state and self._should_read_switch_state(switch, force_state_read):
+                try:
+                    state = self._read_switch_state(switch.action_url("state"))
+                    last_state_read_at = time.time()
+                except Exception as exc:
+                    last_state_read_at = time.time()
+                    errors.append(f"State read failed: {exc}")
 
             self.store.set_power_switch_status(
                 switch.id,
@@ -630,12 +647,57 @@ class CurveEngine:
                 desired_state=desired_state,
                 last_command=last_command,
                 last_command_at=last_command_at,
+                last_state_read_at=last_state_read_at,
                 error="; ".join(errors) if errors else None,
             )
             refreshed = self.store.power_switches.get(switch.id)
             results.append(refreshed.to_dict() if refreshed else switch.to_dict())
 
         return results
+
+    def refresh_power_switch_states(self, force: bool = False) -> List[Dict[str, object]]:
+        results = []
+        for switch in self.store.snapshot_power_switches():
+            if not self._should_read_switch_state(switch, force):
+                results.append(switch.to_dict())
+                continue
+
+            state = switch.state
+            last_state_read_at = switch.last_state_read_at
+            error = None
+            try:
+                state = self._read_switch_state(switch.action_url("state"))
+                last_state_read_at = time.time()
+            except Exception as exc:
+                last_state_read_at = time.time()
+                error = f"State read failed: {exc}"
+
+            self.store.set_power_switch_status(
+                switch.id,
+                state=state,
+                desired_state=switch.desired_state,
+                last_command=switch.last_command,
+                last_command_at=switch.last_command_at,
+                last_state_read_at=last_state_read_at,
+                error=error,
+            )
+            refreshed = self.store.power_switches.get(switch.id)
+            results.append(refreshed.to_dict() if refreshed else switch.to_dict())
+        return results
+
+    def _should_read_switch_state(self, switch: PowerSwitchConfig, force: bool = False) -> bool:
+        if force or switch.last_state_read_at is None:
+            return True
+        return time.time() - float(switch.last_state_read_at) >= self.power_switch_state_interval
+
+    def _has_confirmed_switch_mismatch(self, switch: PowerSwitchConfig, desired_state: str) -> bool:
+        if switch.state not in {"on", "off"} or switch.state == desired_state:
+            return False
+        if switch.last_state_read_at is None:
+            return True
+        if switch.last_command_at is None:
+            return True
+        return float(switch.last_state_read_at) >= float(switch.last_command_at)
 
     def _desired_switch_state(self, switch: PowerSwitchConfig, ok_sources: Set[str]) -> str:
         if not switch.sensor_groups:
@@ -793,9 +855,22 @@ class CurveEngine:
         return high_point["pwm"] if temp >= high_point["temp"] else low_pwm
 
     def _loop(self) -> None:
+        next_curve_at = time.monotonic()
+        next_state_at = time.monotonic()
         while not self._stop_event.is_set():
+            now = time.monotonic()
             try:
-                self.evaluate_once()
+                if now >= next_curve_at:
+                    read_switch_state = now >= next_state_at
+                    self.evaluate_once(read_switch_state=read_switch_state)
+                    next_curve_at = now + self.interval
+                    if read_switch_state:
+                        next_state_at = now + self.power_switch_state_interval
+                elif now >= next_state_at:
+                    self.refresh_power_switch_states()
+                    next_state_at = now + self.power_switch_state_interval
             except Exception as exc:
                 logger.exception("Curve engine evaluation failed: %s", exc)
-            self._stop_event.wait(self.interval)
+
+            wait_until = min(next_curve_at, next_state_at)
+            self._stop_event.wait(max(0.1, wait_until - time.monotonic()))

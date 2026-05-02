@@ -6,13 +6,13 @@
     }
   ],
   "controller_names": {
-    "DE6424128F4E2434": "c2",
-    "DE6424128F242334": "c11"
+    "DE6424128F4E2434": "fan-controller",
+    "DE6424128F242334": "pump-controller"
   },
   "power_switches": [
     {
-      "id": "tss",
-      "name": "tss",
+      "id": "radiator-psu",
+      "name": "radiator-psu",
       "url": "https://arduino.voidlab.homes/radiator-psu",
       "on_url": "https://arduino.voidlab.homes/radiator-psu/on",
       "off_url": "https://arduino.voidlab.homes/radiator-psu/off",
@@ -23,7 +23,8 @@
       "state": "on",
       "desired_state": "on",
       "last_command": "on",
-      "last_command_at": 1777760167.4725573,
+      "last_command_at": 1777761732.9573529,
+      "last_state_read_at": 1777761785.1691642,
       "last_error": null
     }
   ],
@@ -35,7 +36,7 @@
       "targets": [
         {
           "controller_id": "DE6424128F242334",
-          "fan": "0"
+          "fan": "3"
         }
       ],
       "curve_type": "flat",
@@ -146,7 +147,7 @@
       "response_time": 1.0,
       "enabled": true,
       "last_value": 54.0,
-      "last_pwm": 66.5,
+      "last_pwm": 62.0,
       "last_error": null
     }
   ]
